@@ -1,0 +1,358 @@
+openapi: 3.0.3
+info:
+  title: StarWest 2026 E-commerce API
+  description: >
+    REST API for an e-commerce, built for the StarWest 2026 AI-Driven API Test and
+    Automation class. It allows a consumer to register, login to get a JWT token, and
+    perform a checkout. All data is kept in memory.
+  version: 1.0.0
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+tags:
+  - name: Authentication
+    description: Registration and login operations
+  - name: Checkout
+    description: Checkout operations
+  - name: Health
+    description: Service health operations
+paths:
+  /register:
+    post:
+      tags:
+        - Authentication
+      summary: Register a new user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              newUser:
+                summary: A new user
+                value:
+                  name: Daniel Oliveira
+                  email: daniel@example.com
+                  password: Daniel@789
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          description: Missing or invalid fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email is already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /login:
+    post:
+      tags:
+        - Authentication
+      summary: Authenticate a user and return a JWT token
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              existingUser:
+                summary: A seeded user
+                value:
+                  email: alice@example.com
+                  password: Password123!
+      responses:
+        '200':
+          description: Authentication succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Email or password not provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /checkout:
+    post:
+      tags:
+        - Checkout
+      summary: Perform a checkout for the authenticated user
+      description: >
+        Accepts only cash or credit_card as payment method. Cash payments receive a
+        10% discount. Requires a valid JWT token.
+      operationId: checkout
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+            examples:
+              cashPayment:
+                summary: Cash payment (10% discount)
+                value:
+                  items:
+                    - productId: 1
+                      quantity: 2
+                  paymentMethod: cash
+              creditCardPayment:
+                summary: Credit card payment (no discount)
+                value:
+                  items:
+                    - productId: 2
+                      quantity: 1
+                  paymentMethod: credit_card
+                  creditCard:
+                    number: '4111111111111111'
+                    holderName: Alice Johnson
+                    expirationDate: 12/2030
+                    cvv: '123'
+      responses:
+        '200':
+          description: Checkout completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutResponse'
+        '400':
+          description: Invalid payload, payment method, or missing credit card details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing, invalid, or expired token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: One of the products was not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /healthcheck:
+    get:
+      tags:
+        - Health
+      summary: Check whether the API is up
+      operationId: healthcheck
+      responses:
+        '200':
+          description: API is up
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    RegisterRequest:
+      type: object
+      required:
+        - name
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          example: Daniel Oliveira
+        email:
+          type: string
+          format: email
+          example: daniel@example.com
+        password:
+          type: string
+          minLength: 6
+          example: Daniel@789
+    RegisterResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: User registered successfully
+        user:
+          $ref: '#/components/schemas/User'
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+        password:
+          type: string
+          example: Password123!
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        user:
+          $ref: '#/components/schemas/User'
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Alice Johnson
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+    CheckoutItem:
+      type: object
+      required:
+        - productId
+        - quantity
+      properties:
+        productId:
+          type: integer
+          example: 1
+        quantity:
+          type: integer
+          minimum: 1
+          example: 2
+    CreditCard:
+      type: object
+      required:
+        - number
+        - holderName
+        - expirationDate
+        - cvv
+      properties:
+        number:
+          type: string
+          example: '4111111111111111'
+        holderName:
+          type: string
+          example: Alice Johnson
+        expirationDate:
+          type: string
+          example: 12/2030
+        cvv:
+          type: string
+          example: '123'
+    CheckoutRequest:
+      type: object
+      required:
+        - items
+        - paymentMethod
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CheckoutItem'
+        paymentMethod:
+          type: string
+          enum:
+            - cash
+            - credit_card
+          example: cash
+        creditCard:
+          $ref: '#/components/schemas/CreditCard'
+    CheckoutResponseItem:
+      type: object
+      properties:
+        productId:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Wireless Mouse
+        quantity:
+          type: integer
+          example: 2
+        unitPrice:
+          type: number
+          format: float
+          example: 29.9
+        total:
+          type: number
+          format: float
+          example: 59.8
+    CheckoutResponse:
+      type: object
+      properties:
+        userId:
+          type: integer
+          example: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckoutResponseItem'
+        paymentMethod:
+          type: string
+          example: cash
+        subtotal:
+          type: number
+          format: float
+          example: 59.8
+        discount:
+          type: number
+          format: float
+          example: 5.98
+        total:
+          type: number
+          format: float
+          example: 53.82
+        message:
+          type: string
+          example: Checkout completed successfully
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: UP
+        uptime:
+          type: integer
+          description: Seconds since the API started
+          example: 42
+        timestamp:
+          type: string
+          format: date-time
+          example: '2026-09-22T14:05:00.000Z'
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Invalid email or password
