@@ -122,6 +122,13 @@ may fail, and every check must pass. Point the script at another host with `BASE
 BASE_URL=http://localhost:4000 k6 run test/loadTesting/login.js
 ```
 
+### Test Design
+
+[`docs/equivalencePartitioning.md`](docs/equivalencePartitioning.md) applies equivalence
+partitioning to the 10% cash discount rule, documenting the partitions, the test cases derived
+from them, and two observations from executing those cases that shaped the assertions in the
+automated suite.
+
 ### Continuous Integration
 
 [`.github/workflows/api-tests.yml`](.github/workflows/api-tests.yml) runs the suite on GitHub
