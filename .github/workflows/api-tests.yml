@@ -1,0 +1,67 @@
+name: API Tests
+
+# Runs when a pull request targets main, and again once the merge lands on main.
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  api-tests:
+    name: Path Coverage Tests
+    runs-on: ubuntu-latest
+
+    env:
+      BASE_URL: http://localhost:3000
+      PORT: 3000
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Run npm install
+        run: npm install
+
+      - name: Run the API in background
+        run: npm start > api.log 2>&1 &
+
+      - name: Wait until the API is running
+        # Polls the health check endpoint until it reports the API is up, so the
+        # tests never start against a server that is not listening yet.
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail "$BASE_URL/healthcheck" > /dev/null; then
+              echo "API is up after ${attempt} attempt(s)"
+              curl --silent "$BASE_URL/healthcheck"
+              exit 0
+            fi
+            echo "Attempt ${attempt}: API not ready yet, retrying in 2s"
+            sleep 2
+          done
+          echo "API did not become ready in time"
+          cat api.log
+          exit 1
+
+      - name: Run the tests scripts
+        run: npm test
+
+      - name: Show API log on failure
+        if: failure()
+        run: cat api.log
+
+      - name: Upload Mochawesome report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mochawesome-report
+          path: mochawesome-report/
+          if-no-files-found: warn
