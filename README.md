@@ -23,6 +23,14 @@ src/
 └── models/              In-memory users and products
 ```
 
+Test automation lives under the `test` folder:
+
+```
+test/
+├── config.js            Base URL and test data shared by the suites
+└── pathCoverage/        One test per API path
+```
+
 Everything runs in memory — no database is created. Data resets every time the API restarts.
 
 ## Installation
@@ -49,6 +57,44 @@ different port.
 | API base URL       | http://localhost:3000            |
 | Swagger UI         | http://localhost:3000/api-docs   |
 | Health check       | http://localhost:3000/healthcheck |
+
+## How to Run the Tests
+
+The test suite uses [Mocha](https://mochajs.org/), [Supertest](https://www.npmjs.com/package/supertest),
+and [Chai](https://www.chaijs.com/guide/styles/#expect). Supertest runs against the HTTP address
+of a running instance, so **the API must be started before the tests**:
+
+```bash
+npm start          # in one terminal
+npm test           # in another terminal
+```
+
+| Command                    | Description                                    |
+| -------------------------- | ---------------------------------------------- |
+| `npm test`                 | Run the whole suite using `.mocharc.json`      |
+| `npm run test:pathCoverage`| Run only the path coverage suite               |
+
+Point the tests at a different host with the `BASE_URL` environment variable:
+
+```bash
+BASE_URL=http://localhost:4000 npm test
+```
+
+[Mochawesome](https://www.npmjs.com/package/mochawesome) writes the execution report to
+`mochawesome-report/path-coverage.html` (plus a `.json` alongside it). The folder is generated
+and not committed.
+
+### Path Coverage
+
+Path coverage is the number of paths exercised divided by the total number of paths the API
+exposes. `swagger.yaml` declares 4 paths, so 4 tests — one per path — reach 100%.
+
+| Test file                            | Path exercised        |
+| ------------------------------------ | --------------------- |
+| `test/pathCoverage/register.test.js` | `POST /register`      |
+| `test/pathCoverage/login.test.js`    | `POST /login`         |
+| `test/pathCoverage/checkout.test.js` | `POST /checkout`      |
+| `test/pathCoverage/healthcheck.test.js` | `GET /healthcheck` |
 
 ## Rules
 

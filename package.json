@@ -4,7 +4,9 @@
   "description": "E-commerce REST API with JWT authentication and checkout, built for StarWest 2026 - AI-Driven API Test and Automation",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "mocha",
+    "test:pathCoverage": "mocha --spec 'test/pathCoverage/**/*.test.js'"
   },
   "keywords": [
     "express",
@@ -21,5 +23,11 @@
     "jsonwebtoken": "^9.0.2",
     "swagger-ui-express": "^5.0.1",
     "yamljs": "^0.3.0"
+  },
+  "devDependencies": {
+    "chai": "^4.5.0",
+    "mocha": "^12.0.2",
+    "mochawesome": "^8.1.1",
+    "supertest": "^7.3.0"
   }
 }
