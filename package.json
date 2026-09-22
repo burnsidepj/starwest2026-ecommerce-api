@@ -9,7 +9,8 @@
     "test:pathCoverage": "mocha --spec 'test/pathCoverage/**/*.test.js'",
     "test:load": "k6 run test/loadTesting/login.js",
     "test:load:pewpew": "BASE_URL=${BASE_URL:-http://localhost:3000} pewpew run -f json test/loadTesting/login.yml | node test/loadTesting/checkThreshold.js",
-    "test:load:pewpew:all": "BASE_URL=${BASE_URL:-http://localhost:3000} pewpew run -f json test/loadTesting/allEndpoints.yml | node test/loadTesting/checkThreshold.js"
+    "test:load:pewpew:all": "BASE_URL=${BASE_URL:-http://localhost:3000} pewpew run -f json test/loadTesting/allEndpoints.yml | node test/loadTesting/checkThreshold.js",
+    "test:load:report": "BASE_URL=${BASE_URL:-http://localhost:3000} pewpew run -f json test/loadTesting/allEndpoints.yml > /tmp/pewpew-run.json && node test/loadTesting/generateReport.js /tmp/pewpew-run.json docs/loadTestReport.html && node test/loadTesting/checkThreshold.js < /tmp/pewpew-run.json"
   },
   "keywords": [
     "express",
