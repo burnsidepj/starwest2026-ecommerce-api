@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "mocha",
-    "test:pathCoverage": "mocha --spec 'test/pathCoverage/**/*.test.js'"
+    "test:pathCoverage": "mocha --spec 'test/pathCoverage/**/*.test.js'",
+    "test:load": "k6 run test/loadTesting/login.js"
   },
   "keywords": [
     "express",

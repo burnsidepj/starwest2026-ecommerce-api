@@ -96,6 +96,32 @@ exposes. `swagger.yaml` declares 4 paths, so 4 tests — one per path — reach 
 | `test/pathCoverage/checkout.test.js` | `POST /checkout`      |
 | `test/pathCoverage/healthcheck.test.js` | `GET /healthcheck` |
 
+### Load Testing
+
+Load test scripts live in `test/loadTesting` and run with [k6](https://grafana.com/docs/k6/latest/).
+The API must be running first.
+
+```bash
+npm start            # in one terminal
+npm run test:load    # in another terminal
+```
+
+`test/loadTesting/login.js` exercises `POST /login` with the three seeded users, ramping to
+30 virtual users over 30 seconds:
+
+| Stage | Duration | Target VUs |
+| ----- | -------- | ---------- |
+| Ramp up   | 5s  | 10 |
+| Peak load | 20s | 30 |
+| Ramp down | 5s  | 0  |
+
+Thresholds: the 95th percentile of `http_req_duration` must stay under **500ms**, no request
+may fail, and every check must pass. Point the script at another host with `BASE_URL`:
+
+```bash
+BASE_URL=http://localhost:4000 k6 run test/loadTesting/login.js
+```
+
 ### Continuous Integration
 
 [`.github/workflows/api-tests.yml`](.github/workflows/api-tests.yml) runs the suite on GitHub
