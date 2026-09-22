@@ -1,0 +1,13 @@
+{
+  "spec": "test/pathCoverage/**/*.test.js",
+  "reporter": "mochawesome",
+  "reporter-option": [
+    "reportDir=mochawesome-report",
+    "reportFilename=path-coverage",
+    "reportTitle=Path Coverage - StarWest 2026 E-commerce API",
+    "reportPageTitle=Path Coverage Report",
+    "charts=true",
+    "overwrite=true"
+  ],
+  "timeout": 10000
+}
