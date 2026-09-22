@@ -5,3 +5,6 @@ npm-debug.log*
 
 # Generated test execution reports
 mochawesome-report/
+
+# Generated load test stats
+stats-*.json

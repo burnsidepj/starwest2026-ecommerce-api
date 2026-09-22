@@ -1,0 +1,66 @@
+# Load test for the POST /login path described in swagger.yaml.
+#
+# Mirrors the k6 scenario in login.js so the two tools can be compared:
+#   - 10 users over the first 5s, 30 users over the next 20s, 0 users over the final 5s
+#   - the 95th percentile of the response time must stay under 500ms
+#
+# PewPew drives load as a request rate rather than as virtual users, so the
+# scenario is expressed as a peak rate with the ramp described in percentages.
+# 30 users each issuing one request per second is 30 hits per second, making
+# 30hps the peak and 10 users a third of it.
+#
+# Run with:  pewpew run test/loadTesting/login.yml
+
+vars:
+  base_url: "${BASE_URL}"
+
+config:
+  client:
+    headers:
+      Content-Type: application/json
+      Accept: application/json
+      User-Agent: PewPew Load Test - StarWest 2026
+    request_timeout: 30s
+  general:
+    bucket_size: 5s
+
+load_pattern:
+  - linear:
+      from: 0%
+      to: 33%
+      over: 5s
+  - linear:
+      from: 33%
+      to: 100%
+      over: 20s
+  - linear:
+      from: 100%
+      to: 0%
+      over: 5s
+
+providers:
+  # Valid credentials taken from the "Existent Data" section of README.md.
+  credentials:
+    list:
+      - '{"email":"alice@example.com","password":"Password123!"}'
+      - '{"email":"bruno@example.com","password":"Bruno@2026"}'
+      - '{"email":"carla@example.com","password":"Carla#456"}'
+
+loggers:
+  # A fast 401 looks healthy on every latency metric while proving nothing, so
+  # anything other than a successful login is surfaced.
+  failures:
+    to: stderr
+    limit: 100
+    select:
+      status: response.status
+      body: response.body
+    where: response.status != 200
+
+endpoints:
+  - method: POST
+    url: "${base_url}/login"
+    peak_load: 30hps
+    body: "${credentials}"
+    tags:
+      name: login
