@@ -147,6 +147,13 @@ no matter how slow the run was. `test/loadTesting/checkThreshold.js` reads PewPe
 and fails the run when the p95 breaches the threshold, a login returns anything other than
 200, or a request times out. Override the threshold with `P95_THRESHOLD_MS`.
 
+### Test Design
+
+[`docs/equivalencePartitioning.md`](docs/equivalencePartitioning.md) applies equivalence
+partitioning to the 10% cash discount rule, documenting the partitions, the test cases derived
+from them, and two observations from executing those cases that shaped the assertions in the
+automated suite.
+
 ### Continuous Integration
 
 [`.github/workflows/api-tests.yml`](.github/workflows/api-tests.yml) runs the suite on GitHub
