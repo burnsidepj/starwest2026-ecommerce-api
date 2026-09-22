@@ -1,0 +1,107 @@
+# Load test covering all four paths declared in swagger.yaml.
+#
+# login.yml deliberately exercises POST /login on its own, so its p95 measures
+# that endpoint in isolation. This config drives the whole API at once instead,
+# which is the only way to see how the paths interact under concurrent load.
+#
+# The ramp matches login.yml: 0% to 33% over 5s, up to 100% over the next 20s,
+# back to 0% over the final 5s. Each endpoint has its own peak rate, weighted
+# roughly the way an e-commerce API is used: health checks are polled by
+# monitoring, logins are frequent, checkouts less so, registrations rarest.
+#
+# Run with:  npm run test:load:pewpew:all
+
+vars:
+  base_url: "${BASE_URL}"
+
+config:
+  client:
+    headers:
+      Content-Type: application/json
+      Accept: application/json
+      User-Agent: PewPew Load Test - StarWest 2026
+    request_timeout: 30s
+  general:
+    bucket_size: 5s
+
+load_pattern:
+  - linear:
+      from: 0%
+      to: 33%
+      over: 5s
+  - linear:
+      from: 33%
+      to: 100%
+      over: 20s
+  - linear:
+      from: 100%
+      to: 0%
+      over: 5s
+
+providers:
+  # Valid credentials taken from the "Existent Data" section of README.md.
+  credentials:
+    list:
+      - '{"email":"alice@example.com","password":"Password123!"}'
+      - '{"email":"bruno@example.com","password":"Bruno@2026"}'
+      - '{"email":"carla@example.com","password":"Carla#456"}'
+
+  # JWT tokens captured from login responses and handed to the checkout
+  # endpoint. auto_return puts a token back in the buffer once checkout is done
+  # with it, so tokens are reused rather than exhausted.
+  tokens:
+    response:
+      buffer: 50
+      auto_return: if_not_full
+
+loggers:
+  # A fast 4xx looks healthy on every latency metric while proving nothing, so
+  # any unexpected status is surfaced.
+  failures:
+    to: stderr
+    limit: 100
+    select:
+      endpoint: request["start-line"]
+      status: response.status
+      body: response.body
+    where: response.status >= 400
+
+endpoints:
+  # Monitoring polls this constantly, and it touches no business logic, so it
+  # doubles as a control: if its latency degrades, the event loop is saturated.
+  - method: GET
+    url: "${base_url}/healthcheck"
+    peak_load: 10hps
+    tags:
+      name: healthcheck
+
+  - method: POST
+    url: "${base_url}/login"
+    peak_load: 30hps
+    body: "${credentials}"
+    tags:
+      name: login
+    provides:
+      tokens:
+        select: response.body.token
+        where: response.status == 200
+
+  # The email must be unique on every request because users are held in memory
+  # and a repeat returns 409. Nanosecond epoch plus a random suffix avoids
+  # collisions even at high request rates.
+  - method: POST
+    url: "${base_url}/register"
+    peak_load: 5hps
+    body: '{"name":"Load Test User","email":"load.${epoch("ns")}.${random(1, 1000000)}@example.com","password":"Load@123456"}'
+    tags:
+      name: register
+
+  # Cash payment, so this also exercises the 10% discount calculation.
+  - method: POST
+    url: "${base_url}/checkout"
+    peak_load: 10hps
+    headers:
+      Authorization: "Bearer ${tokens}"
+    body: '{"items":[{"productId":1,"quantity":2}],"paymentMethod":"cash"}'
+    tags:
+      name: checkout
