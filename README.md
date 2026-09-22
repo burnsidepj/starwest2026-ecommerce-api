@@ -144,8 +144,52 @@ of it.
 
 PewPew reports statistics but has no built-in pass/fail thresholds, so it exits successfully
 no matter how slow the run was. `test/loadTesting/checkThreshold.js` reads PewPew's JSON output
-and fails the run when the p95 breaches the threshold, a login returns anything other than
-200, or a request times out. Override the threshold with `P95_THRESHOLD_MS`.
+and fails the run when the p95 breaches the threshold, an endpoint returns a status other than
+the one its Swagger response documents, or a request times out. Override the threshold with
+`P95_THRESHOLD_MS`.
+
+#### Driving all four endpoints at once
+
+`test/loadTesting/allEndpoints.yml` exercises every path in `swagger.yaml` concurrently, using
+the same ramp. `login.yml` keeps `POST /login` on its own so its p95 measures that endpoint in
+isolation; this config exists to show how the paths interact.
+
+```bash
+npm run test:load:pewpew:all
+```
+
+| Endpoint | Peak rate | Notes |
+| -------- | --------- | ----- |
+| `GET /healthcheck` | 10hps | touches no business logic, so it doubles as a control |
+| `POST /login`      | 30hps | supplies JWTs to the checkout endpoint |
+| `POST /register`   | 5hps  | unique email per request, since a repeat returns 409 |
+| `POST /checkout`   | 10hps | cash payment, so it also exercises the discount calculation |
+
+Checkout needs a token, which PewPew supplies by capturing `response.body.token` from the login
+endpoint into a response provider. `auto_return: if_not_full` returns each token to the buffer
+once checkout is finished with it, so tokens are reused rather than exhausted.
+
+The registration email uses `${epoch("ns")}` plus a random suffix. Users are held in memory, so
+a fixed email would return `409 Conflict` on every request after the first.
+
+##### What the combined run shows
+
+Every endpoint stays under the 500ms threshold, but latency is far worse than the same endpoints
+measured alone:
+
+| Endpoint | p95 alone | p95 under combined load |
+| -------- | --------- | ----------------------- |
+| `GET /healthcheck` | 1.75ms | 89.09ms |
+| `POST /login`      | 51.68ms | 85.06ms |
+
+The health check does nothing but read a timestamp, and its own code is unchanged — yet it slows
+by roughly **50x**. The cause is `bcrypt.compareSync` in `authService.login` and
+`bcrypt.hashSync` in `userModel.create`: both are synchronous, so each login or registration
+blocks Node's event loop for around 25ms and every other request waits behind it.
+
+This is worth knowing because the health check is what the CI pipeline polls to decide the API
+is ready. Under load it is not reporting its own speed, it is reporting event loop contention.
+Switching to the asynchronous `bcrypt.compare` and `bcrypt.hash` would be the fix.
 
 ### Test Design
 
