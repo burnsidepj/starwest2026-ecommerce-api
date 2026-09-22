@@ -96,6 +96,15 @@ exposes. `swagger.yaml` declares 4 paths, so 4 tests — one per path — reach 
 | `test/pathCoverage/checkout.test.js` | `POST /checkout`      |
 | `test/pathCoverage/healthcheck.test.js` | `GET /healthcheck` |
 
+### Continuous Integration
+
+[`.github/workflows/api-tests.yml`](.github/workflows/api-tests.yml) runs the suite on GitHub
+Actions whenever a pull request targets `main`, and again once the merge lands on `main`.
+
+The job clones the repository, runs `npm install`, starts the API in the background, polls
+`/healthcheck` until the API reports it is up, then runs the test scripts. The Mochawesome
+report is uploaded as a build artifact, and the API log is printed if the job fails.
+
 ## Rules
 
 ### Checkout Rules
