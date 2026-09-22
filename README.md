@@ -191,6 +191,15 @@ This is worth knowing because the health check is what the CI pipeline polls to 
 is ready. Under load it is not reporting its own speed, it is reporting event loop contention.
 Switching to the asynchronous `bcrypt.compare` and `bcrypt.hash` would be the fix.
 
+### Load Test Report
+
+[`docs/loadTestReport.html`](docs/loadTestReport.html) charts a 2 minute run at 2 hits per second
+against each endpoint. Open it in a browser; it has a dark mode toggle and a data table view.
+
+The run passed on every endpoint, and the charts show why that is not the whole story: the health
+check's median is 2.2ms while its p95 is 57.6ms. The numbers in the page are the recorded output
+of that run and are not regenerated automatically.
+
 ### Test Design
 
 [`docs/equivalencePartitioning.md`](docs/equivalencePartitioning.md) applies equivalence
