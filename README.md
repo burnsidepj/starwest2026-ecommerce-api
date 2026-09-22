@@ -122,6 +122,31 @@ may fail, and every check must pass. Point the script at another host with `BASE
 BASE_URL=http://localhost:4000 k6 run test/loadTesting/login.js
 ```
 
+#### The same scenario in PewPew
+
+`test/loadTesting/login.yml` runs the same scenario with
+[PewPew](https://familysearch.github.io/pewpew), so the two tools can be compared:
+
+```bash
+npm run test:load:pewpew
+```
+
+PewPew drives load as a **request rate** rather than as virtual users, so the scenario is
+expressed as a peak rate with the ramp described in percentages. 30 users each issuing one
+request per second is 30 hits per second, which makes `30hps` the peak and 10 users a third
+of it.
+
+| Stage | Duration | Percentage of peak |
+| ----- | -------- | ------------------ |
+| Ramp up   | 5s  | 0% → 33%   |
+| Peak load | 20s | 33% → 100% |
+| Ramp down | 5s  | 100% → 0%  |
+
+PewPew reports statistics but has no built-in pass/fail thresholds, so it exits successfully
+no matter how slow the run was. `test/loadTesting/checkThreshold.js` reads PewPew's JSON output
+and fails the run when the p95 breaches the threshold, a login returns anything other than
+200, or a request times out. Override the threshold with `P95_THRESHOLD_MS`.
+
 ### Continuous Integration
 
 [`.github/workflows/api-tests.yml`](.github/workflows/api-tests.yml) runs the suite on GitHub
