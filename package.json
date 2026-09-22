@@ -1,0 +1,25 @@
+{
+  "name": "starwest2026-ecommerce-api",
+  "version": "1.0.0",
+  "description": "E-commerce REST API with JWT authentication and checkout, built for StarWest 2026 - AI-Driven API Test and Automation",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "keywords": [
+    "express",
+    "rest-api",
+    "jwt",
+    "ecommerce",
+    "starwest2026"
+  ],
+  "author": "Paul Burnside",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "swagger-ui-express": "^5.0.1",
+    "yamljs": "^0.3.0"
+  }
+}
