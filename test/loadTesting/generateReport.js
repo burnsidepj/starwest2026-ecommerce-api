@@ -1,9 +1,136 @@
-<!doctype html>
+// Builds an HTML report from PewPew's JSON output.
+//
+// The figures are read straight out of the stats stream rather than transcribed,
+// so the charts cannot drift from the run they describe.
+//
+// Usage:
+//   pewpew run -f json test/loadTesting/allEndpoints.yml > run.json
+//   node test/loadTesting/generateReport.js run.json docs/loadTestReport.html
+//
+// Reads stdin when no input file is given.
+
+const fs = require('fs');
+const path = require('path');
+
+const P95_THRESHOLD_MS = Number(process.env.P95_THRESHOLD_MS || 500);
+
+// Categorical slots 1-4 of the validated palette, light and dark steps.
+const PALETTE = {
+  light: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100'],
+  dark: ['#3987e5', '#d95926', '#199e70', '#c98500']
+};
+
+function parseRecords(raw) {
+  return raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch (error) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function extract(raw) {
+  const records = parseRecords(raw);
+  const tests = records.filter((r) => r.type === 'summary' && r.summaryType === 'test');
+  const bucketRecords = records.filter((r) => r.type === 'summary' && r.summaryType === 'bucket');
+
+  if (tests.length === 0) {
+    throw new Error('no test summary found in the PewPew output');
+  }
+
+  const label = (r) => (r.tags && r.tags.name) || `${r.method} ${r.url}`;
+  const order = tests.map(label);
+
+  const totals = {};
+  tests.forEach((r) => {
+    totals[label(r)] = {
+      calls: r.callCount,
+      min: r.min,
+      p50: r.p50,
+      mean: r.mean,
+      p95: r.p95,
+      p99: r.p99,
+      max: r.max,
+      statuses: (r.statusCounts || []).map((s) => `${s.status}`).join('/'),
+      errors: r.testErrorCount,
+      timeouts: r.requestTimeouts
+    };
+  });
+
+  const t0 = Math.min(...bucketRecords.map((r) => r.timestamp));
+  const buckets = {};
+  bucketRecords.forEach((r) => {
+    const name = label(r);
+    (buckets[name] = buckets[name] || []).push({
+      t: r.timestamp - t0,
+      p50: r.p50,
+      p95: r.p95,
+      p99: r.p99,
+      calls: r.callCount
+    });
+  });
+
+  // The run's duration and rate must come from the unfiltered buckets. Deriving
+  // them after dropping the partial ones understates both.
+  const allT = [...new Set(Object.values(buckets).flat().map((b) => b.t))].sort((a, b) => a - b);
+  const step = allT.length > 1 ? allT[1] - allT[0] : 30;
+  const durationSec = allT[allT.length - 1];
+
+  // PewPew opens a bucket the moment the test starts and closes one when it ends,
+  // so the first and last hold only a handful of calls. Their percentiles are noise.
+  const maxCalls = Math.max(...Object.values(buckets).flat().map((b) => b.calls));
+  Object.keys(buckets).forEach((name) => {
+    buckets[name] = buckets[name].sort((a, b) => a.t - b.t).filter((b) => b.calls > maxCalls * 0.5);
+  });
+
+  const bucketSpan = Object.values(buckets)[0].length;
+  const totalCalls = Object.values(totals).reduce((sum, t) => sum + t.calls, 0);
+  const totalErrors = Object.values(totals).reduce((sum, t) => sum + t.errors + t.timeouts, 0);
+
+  return { order, totals, buckets, bucketSpan, totalCalls, totalErrors, step, durationSec };
+}
+
+function describeRun(data) {
+  const { step, durationSec } = data;
+  const perEndpoint = data.order.length
+    ? Math.round(Object.values(data.totals)[0].calls / durationSec)
+    : 0;
+  const minutes = durationSec % 60 === 0 ? durationSec / 60 : (durationSec / 60).toFixed(1);
+  return {
+    step,
+    durationSec,
+    perEndpoint,
+    title: `Load test — all ${data.order.length} endpoints, ${perEndpoint} hits/sec each, ${minutes} minutes`
+  };
+}
+
+function render(data, meta) {
+  const worst = data.order.reduce((a, b) => (data.totals[a].p95 >= data.totals[b].p95 ? a : b));
+  const widest = data.order.reduce((a, b) => {
+    const ra = data.totals[a].p95 / data.totals[a].p50;
+    const rb = data.totals[b].p95 / data.totals[b].p50;
+    return ra >= rb ? a : b;
+  });
+  const w = data.totals[widest];
+  const allPass = data.order.every(
+    (n) => data.totals[n].p95 < P95_THRESHOLD_MS && data.totals[n].errors === 0 && data.totals[n].timeouts === 0
+  );
+
+  const cssVars = (mode) =>
+    PALETTE[mode].map((hex, i) => `    --series-${i + 1}: ${hex};`).join('\n');
+
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Load test — all 4 endpoints, 5 hits/sec each, 5 minutes</title>
+<title>${meta.title}</title>
 <style>
   .viz-root {
     color-scheme: light;
@@ -14,10 +141,7 @@
     --text-muted: #77756f;
     --grid: #e3e2dd;
     --axis: #c9c8c2;
-    --series-1: #2a78d6;
-    --series-2: #eb6834;
-    --series-3: #1baf7a;
-    --series-4: #eda100;
+${cssVars('light')}
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) .viz-root {
@@ -29,10 +153,7 @@
       --text-muted: #96958c;
       --grid: #32322f;
       --axis: #45443f;
-    --series-1: #3987e5;
-    --series-2: #d95926;
-    --series-3: #199e70;
-    --series-4: #c98500;
+${cssVars('dark')}
     }
   }
   :root[data-theme="dark"] .viz-root {
@@ -44,10 +165,7 @@
     --text-muted: #96958c;
     --grid: #32322f;
     --axis: #45443f;
-    --series-1: #3987e5;
-    --series-2: #d95926;
-    --series-3: #199e70;
-    --series-4: #c98500;
+${cssVars('dark')}
   }
 
   * { box-sizing: border-box; }
@@ -89,13 +207,13 @@
   .hidden { display: none; }
 </style>
 </head>
-<body data-palette="#2a78d6,#eb6834,#1baf7a,#eda100">
+<body data-palette="${PALETTE.light.join(',')}">
 <div class="viz-root">
 <div class="wrap">
 
-  <h1>Load test — all 4 endpoints, 5 hits/sec each, 5 minutes</h1>
-  <p class="sub">StarWest 2026 e-commerce API · PewPew · 5996 requests · 0 errors</p>
-  <p class="meta">Generated from the run's own stats stream by test/loadTesting/generateReport.js. Threshold: p95 &lt; 500&nbsp;ms.</p>
+  <h1>${meta.title}</h1>
+  <p class="sub">StarWest 2026 e-commerce API · PewPew · ${data.totalCalls} requests · ${data.totalErrors} errors</p>
+  <p class="meta">Generated from the run's own stats stream by test/loadTesting/generateReport.js. Threshold: p95 &lt; ${P95_THRESHOLD_MS}&nbsp;ms.</p>
 
   <div class="toolbar">
     <button id="theme">Toggle dark mode</button>
@@ -103,10 +221,10 @@
   </div>
 
   <div class="tiles">
-    <div class="tile"><div class="label">healthcheck p50</div><div class="value">2.2 ms</div><div class="foot">median</div></div>
-    <div class="tile"><div class="label">healthcheck p95</div><div class="value">65.0 ms</div><div class="foot">29× the median</div></div>
-    <div class="tile"><div class="label">Slowest p95</div><div class="value">87.5 ms</div><div class="foot">register · 17% of budget</div></div>
-    <div class="tile"><div class="label">Threshold</div><div class="value">500 ms</div><div class="foot">all 4 endpoints pass</div></div>
+    <div class="tile"><div class="label">${widest} p50</div><div class="value">${w.p50.toFixed(1)} ms</div><div class="foot">median</div></div>
+    <div class="tile"><div class="label">${widest} p95</div><div class="value">${w.p95.toFixed(1)} ms</div><div class="foot">${(w.p95 / w.p50).toFixed(0)}× the median</div></div>
+    <div class="tile"><div class="label">Slowest p95</div><div class="value">${data.totals[worst].p95.toFixed(1)} ms</div><div class="foot">${worst} · ${((data.totals[worst].p95 / P95_THRESHOLD_MS) * 100).toFixed(0)}% of budget</div></div>
+    <div class="tile"><div class="label">Threshold</div><div class="value">${P95_THRESHOLD_MS} ms</div><div class="foot">${allPass ? `all ${data.order.length} endpoints pass` : 'BREACHED'}</div></div>
   </div>
 
   <h2>Median versus tail, per endpoint</h2>
@@ -123,7 +241,7 @@
 
   <h2>p95 across the run</h2>
   <p class="note">
-    10 buckets of 30 seconds. A rising trend means the API degrades as the run
+    ${data.bucketSpan} buckets of ${meta.step} seconds. A rising trend means the API degrades as the run
     proceeds; a flat line means it holds. Buckets at either end holding only a fraction of a full
     interval's requests are excluded, since their percentiles are drawn from too few samples.
   </p>
@@ -141,7 +259,7 @@
       <tbody id="tbody"></tbody>
     </table>
     <table>
-      <caption>p95 per 30-second bucket, milliseconds.</caption>
+      <caption>p95 per ${meta.step}-second bucket, milliseconds.</caption>
       <thead><tr id="thead2"></tr></thead>
       <tbody id="tbody2"></tbody>
     </table>
@@ -151,355 +269,8 @@
 </div>
 
 <script>
-const DATA = {
- "order": [
-  "healthcheck",
-  "login",
-  "register",
-  "checkout"
- ],
- "totals": {
-  "healthcheck": {
-   "calls": 1499,
-   "min": 0.688,
-   "p50": 2.239,
-   "mean": 19.18,
-   "p95": 64.959,
-   "p99": 92.415,
-   "max": 142.847,
-   "statuses": "200",
-   "errors": 0,
-   "timeouts": 0
-  },
-  "login": {
-   "calls": 1499,
-   "min": 19.168,
-   "p50": 41.247,
-   "mean": 42.862,
-   "p95": 82.943,
-   "p99": 102.847,
-   "max": 121.407,
-   "statuses": "200",
-   "errors": 0,
-   "timeouts": 0
-  },
-  "register": {
-   "calls": 1499,
-   "min": 19.184,
-   "p50": 45.535,
-   "mean": 47.702,
-   "p95": 87.487,
-   "p99": 104.511,
-   "max": 180.223,
-   "statuses": "201",
-   "errors": 0,
-   "timeouts": 0
-  },
-  "checkout": {
-   "calls": 1499,
-   "min": 1.047,
-   "p50": 2.551,
-   "mean": 17.476,
-   "p95": 61.727,
-   "p99": 88.703,
-   "max": 123.647,
-   "statuses": "200",
-   "errors": 0,
-   "timeouts": 0
-  }
- },
- "buckets": {
-  "healthcheck": [
-   {
-    "t": 0,
-    "p50": 2.521,
-    "p95": 61.567,
-    "p99": 78.271,
-    "calls": 144
-   },
-   {
-    "t": 30,
-    "p50": 2.243,
-    "p95": 60.895,
-    "p99": 96.191,
-    "calls": 150
-   },
-   {
-    "t": 60,
-    "p50": 1.837,
-    "p95": 58.367,
-    "p99": 74.815,
-    "calls": 150
-   },
-   {
-    "t": 90,
-    "p50": 2.091,
-    "p95": 78.399,
-    "p99": 116.927,
-    "calls": 150
-   },
-   {
-    "t": 120,
-    "p50": 2.261,
-    "p95": 58.175,
-    "p99": 72.319,
-    "calls": 150
-   },
-   {
-    "t": 150,
-    "p50": 1.976,
-    "p95": 60.895,
-    "p99": 72.191,
-    "calls": 150
-   },
-   {
-    "t": 180,
-    "p50": 1.962,
-    "p95": 69.055,
-    "p99": 98.239,
-    "calls": 150
-   },
-   {
-    "t": 210,
-    "p50": 2.055,
-    "p95": 69.247,
-    "p99": 92.415,
-    "calls": 150
-   },
-   {
-    "t": 240,
-    "p50": 2.503,
-    "p95": 74.175,
-    "p99": 83.967,
-    "calls": 150
-   },
-   {
-    "t": 270,
-    "p50": 2.315,
-    "p95": 69.631,
-    "p99": 106.751,
-    "calls": 150
-   }
-  ],
-  "login": [
-   {
-    "t": 0,
-    "p50": 41.247,
-    "p95": 77.695,
-    "p99": 89.599,
-    "calls": 144
-   },
-   {
-    "t": 30,
-    "p50": 37.823,
-    "p95": 74.879,
-    "p99": 93.119,
-    "calls": 150
-   },
-   {
-    "t": 60,
-    "p50": 40.543,
-    "p95": 78.015,
-    "p99": 91.647,
-    "calls": 150
-   },
-   {
-    "t": 90,
-    "p50": 42.175,
-    "p95": 96.255,
-    "p99": 116.607,
-    "calls": 150
-   },
-   {
-    "t": 120,
-    "p50": 41.343,
-    "p95": 79.935,
-    "p99": 95.743,
-    "calls": 150
-   },
-   {
-    "t": 150,
-    "p50": 41.855,
-    "p95": 80.383,
-    "p99": 98.431,
-    "calls": 150
-   },
-   {
-    "t": 180,
-    "p50": 42.495,
-    "p95": 89.791,
-    "p99": 107.647,
-    "calls": 150
-   },
-   {
-    "t": 210,
-    "p50": 39.967,
-    "p95": 90.431,
-    "p99": 114.815,
-    "calls": 150
-   },
-   {
-    "t": 240,
-    "p50": 42.079,
-    "p95": 77.567,
-    "p99": 100.799,
-    "calls": 150
-   },
-   {
-    "t": 270,
-    "p50": 42.527,
-    "p95": 79.231,
-    "p99": 113.535,
-    "calls": 150
-   }
-  ],
-  "register": [
-   {
-    "t": 0,
-    "p50": 46.271,
-    "p95": 85.439,
-    "p99": 93.503,
-    "calls": 144
-   },
-   {
-    "t": 30,
-    "p50": 43.647,
-    "p95": 79.295,
-    "p99": 94.847,
-    "calls": 150
-   },
-   {
-    "t": 60,
-    "p50": 42.559,
-    "p95": 79.359,
-    "p99": 101.695,
-    "calls": 150
-   },
-   {
-    "t": 90,
-    "p50": 46.655,
-    "p95": 97.279,
-    "p99": 105.855,
-    "calls": 150
-   },
-   {
-    "t": 120,
-    "p50": 43.967,
-    "p95": 83.135,
-    "p99": 101.119,
-    "calls": 150
-   },
-   {
-    "t": 150,
-    "p50": 42.719,
-    "p95": 82.687,
-    "p99": 104.319,
-    "calls": 150
-   },
-   {
-    "t": 180,
-    "p50": 45.695,
-    "p95": 97.791,
-    "p99": 107.199,
-    "calls": 150
-   },
-   {
-    "t": 210,
-    "p50": 48.799,
-    "p95": 92.031,
-    "p99": 122.559,
-    "calls": 150
-   },
-   {
-    "t": 240,
-    "p50": 45.151,
-    "p95": 86.719,
-    "p99": 107.135,
-    "calls": 150
-   },
-   {
-    "t": 270,
-    "p50": 48.735,
-    "p95": 88.639,
-    "p99": 101.823,
-    "calls": 150
-   }
-  ],
-  "checkout": [
-   {
-    "t": 0,
-    "p50": 2.759,
-    "p95": 64.959,
-    "p99": 86.015,
-    "calls": 144
-   },
-   {
-    "t": 30,
-    "p50": 2.523,
-    "p95": 50.335,
-    "p99": 70.783,
-    "calls": 150
-   },
-   {
-    "t": 60,
-    "p50": 2.211,
-    "p95": 57.439,
-    "p99": 76.479,
-    "calls": 150
-   },
-   {
-    "t": 90,
-    "p50": 2.897,
-    "p95": 78.719,
-    "p99": 106.687,
-    "calls": 150
-   },
-   {
-    "t": 120,
-    "p50": 2.225,
-    "p95": 58.943,
-    "p99": 93.119,
-    "calls": 150
-   },
-   {
-    "t": 150,
-    "p50": 2.229,
-    "p95": 55.967,
-    "p99": 78.847,
-    "calls": 150
-   },
-   {
-    "t": 180,
-    "p50": 2.425,
-    "p95": 64.575,
-    "p99": 83.519,
-    "calls": 150
-   },
-   {
-    "t": 210,
-    "p50": 3.785,
-    "p95": 80.959,
-    "p99": 104.639,
-    "calls": 150
-   },
-   {
-    "t": 240,
-    "p50": 2.507,
-    "p95": 62.143,
-    "p99": 83.391,
-    "calls": 150
-   },
-   {
-    "t": 270,
-    "p50": 2.693,
-    "p95": 58.623,
-    "p99": 73.087,
-    "calls": 150
-   }
-  ]
- }
-};
-const THRESHOLD = 500;
+const DATA = ${JSON.stringify({ order: data.order, totals: data.totals, buckets: data.buckets }, null, 1)};
+const THRESHOLD = ${P95_THRESHOLD_MS};
 const COLOR = {};
 DATA.order.forEach((n, i) => { COLOR[n] = "--series-" + ((i % 4) + 1); });
 
@@ -680,3 +451,26 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll)
 </script>
 </body>
 </html>
+`;
+}
+
+function main() {
+  const [input, output] = process.argv.slice(2);
+  const raw = input ? fs.readFileSync(input, 'utf8') : fs.readFileSync(0, 'utf8');
+  const data = extract(raw);
+  const meta = describeRun(data);
+  const html = render(data, meta);
+  const target = output || path.join('docs', 'loadTestReport.html');
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, html);
+
+  console.log(`Report written to ${target}`);
+  console.log(`  ${meta.title}`);
+  console.log(`  ${data.totalCalls} requests across ${data.order.length} endpoints, ${data.totalErrors} errors`);
+  data.order.forEach((n) => {
+    const d = data.totals[n];
+    console.log(`  ${n.padEnd(12)} p50 ${String(d.p50).padEnd(8)} p95 ${String(d.p95).padEnd(8)} ${d.p95 < P95_THRESHOLD_MS ? 'PASS' : 'FAIL'}`);
+  });
+}
+
+main();

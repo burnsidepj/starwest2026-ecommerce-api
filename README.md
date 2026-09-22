@@ -193,12 +193,27 @@ Switching to the asynchronous `bcrypt.compare` and `bcrypt.hash` would be the fi
 
 ### Load Test Report
 
-[`docs/loadTestReport.html`](docs/loadTestReport.html) charts a 2 minute run at 2 hits per second
-against each endpoint. Open it in a browser; it has a dark mode toggle and a data table view.
+`test/loadTesting/generateReport.js` builds an HTML report from PewPew's JSON output, reading the
+figures out of the stats stream so the charts cannot drift from the run they describe:
 
-The run passed on every endpoint, and the charts show why that is not the whole story: the health
-check's median is 2.2ms while its p95 is 57.6ms. The numbers in the page are the recorded output
-of that run and are not regenerated automatically.
+```bash
+npm start                   # in one terminal
+npm run test:load:report    # in another terminal
+```
+
+That runs `allEndpoints.yml`, writes `docs/loadTestReport.html`, and then applies the thresholds.
+Open the report in a browser; it has a dark mode toggle and a data table view. On WSL, use
+`wslview docs/loadTestReport.html`.
+
+To report on a run you already have:
+
+```bash
+node test/loadTesting/generateReport.js run.json docs/loadTestReport.html
+```
+
+The committed report covers a 5 minute run at 5 hits per second against each endpoint. Every
+endpoint passed, and the charts show why that is not the whole story: the health check's median is
+2.2ms against a p95 of 65ms.
 
 ### Test Design
 
